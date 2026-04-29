@@ -99,27 +99,36 @@ async def predict(file: UploadFile = File(...)):
         inputs = {session.get_inputs()[0].name: img_np}
         outputs = session.run(None, inputs)
 
-        # Procesar detecciones
         detecciones = []
-        pred = outputs[0]
+        pred = outputs[0]  # shape: [1, N, 85] o [N, 6]
+        
+        # Normalizar forma del tensor
+        if pred.ndim == 3:
+            pred = pred[0]  # quitar batch dimension -> [N, 85]
 
-        if pred is not None and len(pred) > 0:
-            for det in pred:
-                if len(det) >= 6:
-                    conf = float(det[4])
-                    if conf > 0.25:
-                        clase_idx = int(det[5])
-                        clase_nombre = CLASES[clase_idx] if clase_idx < len(CLASES) else "Desconocido"
-                        info = INFO_CLASES.get(clase_nombre, INFO_DEFAULT)
-                        detecciones.append({
-                            "clase": clase_nombre,
-                            "nombre_es": info["nombre_es"],
-                            "confianza": round(conf * 100, 2),
-                            "descripcion": info["descripcion"],
-                            "solucion": info["solucion"]
-                        })
+        for det in pred:
+            # Obtener confianza y clase
+            if len(det) >= 6:
+                box_conf = float(det[4])
+                class_scores = det[5:]
+                clase_idx = int(np.argmax(class_scores))
+                conf = box_conf * float(class_scores[clase_idx])
+            else:
+                continue
+                
+            if conf > 0.25:
+                clase_nombre = CLASES[clase_idx] if clase_idx < len(CLASES) else "Desconocido"
+                info = INFO_CLASES.get(clase_nombre, INFO_DEFAULT)
+                detecciones.append({
+                    "clase": clase_nombre,
+                    "nombre_es": info["nombre_es"],
+                    "confianza": round(conf * 100, 2),
+                    "descripcion": info["descripcion"],
+                    "solucion": info["solucion"]
+                })
 
         detecciones.sort(key=lambda x: x["confianza"], reverse=True)
+        detecciones = detecciones[:5]  # top 5
 
         return {
             "success": True,
